@@ -1,0 +1,29 @@
+[Unit]
+Description=isales-worker — post-call async post-processor
+After=network.target postgresql.service redis.service
+
+[Service]
+Type=simple
+ExecStart=/opt/isales-worker/.venv/bin/isales-worker
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/etc/isales/worker.env
+User=isales
+Group=isales
+WorkingDirectory=/opt/isales-worker
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
