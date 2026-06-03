@@ -13,6 +13,7 @@ from isales_worker.callend import callend_loop
 from isales_worker.db import get_engine, get_sessionmaker
 from isales_worker.llm import build_provider
 from isales_worker.metrics import metrics_loop
+from isales_worker.post_call_extractor import extract_loop
 from isales_worker.redis_client import get_redis
 from isales_worker.retry_loop import retry_loop
 from isales_worker.settings import load_settings
@@ -57,14 +58,18 @@ async def _main() -> None:
         metrics_loop(sessionmaker, redis, settings),
         name="metrics_loop",
     )
+    extract_task = asyncio.create_task(
+        extract_loop(redis=redis, sessionmaker=sessionmaker, provider=provider),
+        name="extract_loop",
+    )
 
     logger.info("isales_worker_started")
     try:
         await stop_event.wait()
     finally:
-        for task in (callend_task, retry_task, metrics_task):
+        for task in (callend_task, retry_task, metrics_task, extract_task):
             task.cancel()
-        for task in (callend_task, retry_task, metrics_task):
+        for task in (callend_task, retry_task, metrics_task, extract_task):
             try:
                 await task
             except asyncio.CancelledError:

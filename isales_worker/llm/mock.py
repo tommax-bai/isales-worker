@@ -76,3 +76,24 @@ class MockProvider(LLMProvider):
             goal_achieved=goal_achieved,
             goal_type=goal_type,
         )
+
+    async def extract(
+        self,
+        transcript_snapshot: list[dict[str, Any]],
+        extractor_prompt: str,
+    ) -> dict[str, Any]:
+        """Deterministic stub extraction: pull the first user utterance as the
+        customer's intent and count the turns. Real LLM extraction lands with
+        the real provider (stage 5)."""
+        first_user = next(
+            (
+                t.get("text", "")
+                for t in transcript_snapshot
+                if t.get("role") == "user" and t.get("text")
+            ),
+            "",
+        )
+        return {
+            "customer_intent": first_user,
+            "n_turns": len(transcript_snapshot),
+        }

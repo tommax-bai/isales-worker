@@ -31,3 +31,20 @@ class LLMProvider(ABC):
     ) -> SummaryResult:
         """Produce a summary + carry the structured markers from the
         engine's last role_llm output (which lives in the transcript)."""
+
+    @abstractmethod
+    async def extract(
+        self,
+        transcript_snapshot: list[dict[str, Any]],
+        extractor_prompt: str,
+    ) -> dict[str, Any]:
+        """Run the post-call extractor LLM over a call's transcript.
+
+        ``transcript_snapshot`` is the engine-pushed dialog history
+        (``[{role, text, ts_ms}]``); ``extractor_prompt`` is the campaign's
+        extractor system prompt (with a ``{{transcript}}`` placeholder rendered
+        by the caller, or rendered here). Returns the structured ``extracted``
+        dict written to ``call_record.extracted``. Raises on hard failure so the
+        consumer marks ``extract_status='failed'`` (pipeline-stream-and-referee
+        § post-call extractor).
+        """
