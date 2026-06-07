@@ -94,6 +94,48 @@ def test_call_rejected_becomes_failed_no_retry() -> None:
     assert decision.status == LeadStatus.FAILED
 
 
+def test_referee_hangup_no_goal_failed_no_auto_redial() -> None:
+    # engine-tools-multidialogue-gating: AI proactively hung up → no auto-redial
+    # (neither retry nor follow-up), even with follow-up configured.
+    decision = decide_next(
+        lead=_lead(),
+        call_record=_call(),
+        call_summary=_summary(goal_achieved=False),
+        campaign=_campaign(follow_up_max=2),
+        hangup_cause=HangupCause.REFEREE_HANGUP,
+    )
+    assert decision.status == LeadStatus.FAILED
+    assert decision.status not in (LeadStatus.RETRYING, LeadStatus.FOLLOWING_UP)
+    assert decision.retry_count_delta == 0
+    assert decision.follow_up_count_delta == 0
+    assert decision.next_call_at is None
+    assert decision.last_hangup_cause == "referee_hangup"
+
+
+def test_referee_hangup_with_goal_completed() -> None:
+    decision = decide_next(
+        lead=_lead(),
+        call_record=_call(),
+        call_summary=_summary(goal_achieved=True),
+        campaign=_campaign(),
+        hangup_cause=HangupCause.REFEREE_HANGUP,
+    )
+    assert decision.status == LeadStatus.COMPLETED
+    assert decision.next_call_at is None
+
+
+def test_referee_hangup_cause_accepted_by_callended() -> None:
+    # The DLQ guard is CallEnded.model_validate_json enforcing HangupCause;
+    # with isales-common 0.8 the new enum value parses (no dead-letter).
+    from isales_common.schemas.messages import CallEnded
+
+    msg = CallEnded.model_validate_json(
+        '{"call_record_id": 1, "hangup_cause": "referee_hangup",'
+        ' "ended_at": "2026-06-07T12:00:00+00:00"}'
+    )
+    assert msg.hangup_cause == HangupCause.REFEREE_HANGUP
+
+
 def test_normal_clearing_with_goal_completed() -> None:
     decision = decide_next(
         lead=_lead(),

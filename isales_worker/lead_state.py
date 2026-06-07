@@ -145,6 +145,19 @@ def decide_next(
             last_hangup_cause=cause.value,
         )
 
+    # Priority 4b: AI proactively hung up via the referee gating verdict
+    # (engine-tools-multidialogue-gating; tool:hangup). retry-followup spec
+    # § "REFEREE_HANGUP 归入不自动重拨终态": NO auto-redial — neither retry nor
+    # follow-up. Explicit branch (not the catch-all fall-through) so the intent
+    # is enforced by code, not by ordering. Honors goal_achieved on the rare
+    # path where the AI closed after meeting the goal.
+    if cause == HangupCause.REFEREE_HANGUP:
+        goal_done = bool(call_summary.goal_achieved) if call_summary is not None else False
+        return LeadStateUpdate(
+            status=LeadStatus.COMPLETED if goal_done else LeadStatus.FAILED,
+            last_hangup_cause=cause.value,
+        )
+
     # Priority 5: normal hangup — branch on goal_achieved
     goal_achieved = bool(call_summary.goal_achieved) if call_summary is not None else False
     if cause in NORMAL_HANGUP_CAUSES or cause is None:
