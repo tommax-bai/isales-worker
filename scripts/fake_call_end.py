@@ -56,17 +56,25 @@ def _build_transcript(
     transcript: list[dict[str, Any]] = [
         {"type": "greeting", "ts": 0, "text": "您好，这里是 iSales 测试。"},
         {"type": "user_speech", "ts": 1500, "text": "你好。"},
-        {"type": "bot_speech", "ts": 3000, "text": "请问您方便沟通吗？"},
+        {"type": "ai_reply", "ts": 3000, "text": "请问您方便沟通吗？", "turn_id": 1,
+         "goal_achieved": False, "goal_type": "", "extracted": {}, "is_wrap_up": False},
         {"type": "user_speech", "ts": 6000, "text": "可以。"},
         {
-            "type": "bot_speech",
+            "type": "ai_reply",
             "ts": 8000,
+            "turn_id": 2,
             "text": "好的，请问您有兴趣预约一次详细介绍吗？",
             "goal_achieved": goal_achieved,
             "goal_type": goal_type or "",
             "extracted": {"intent": "interested" if goal_achieved else "neutral"},
+            "is_wrap_up": False,
         },
     ]
+    if goal_achieved:
+        transcript.append({
+            "type": "goal_achieved", "ts": 8500, "goal_type": goal_type or "",
+            "extracted": {"intent": "interested"},
+        })
     if do_not_call:
         transcript.append({"type": "do_not_call_marked", "ts": 9500, "reason": "keyword"})
     transcript.append({"type": "hangup", "ts": 10000, "cause": hangup_cause})

@@ -10,17 +10,25 @@ from isales_common.models.lead import Lead
 from sqlalchemy import select
 
 from isales_worker.llm import MockProvider
+from isales_worker.llm.mock import _last_role_markers
 from isales_worker.summarize import summarize_call
 
 
 def _transcript(*, goal_achieved: bool, goal_type: str | None = None) -> list[dict]:
-    return [
+    # Engine-shaped transcript: AI turns are ``ai_reply`` events carrying the goal
+    # markers (not the gone ``bot_speech``). When achieved, the engine also writes a
+    # standalone ``goal_achieved`` milestone event after the closing ai_reply.
+    evts: list[dict] = [
         {"type": "greeting", "ts": 0, "text": "hello"},
         {"type": "user_speech", "ts": 1, "text": "yes"},
-        {"type": "bot_speech", "ts": 2, "text": "great",
+        {"type": "ai_reply", "ts": 2, "text": "great", "turn_id": 1,
          "goal_achieved": goal_achieved, "goal_type": goal_type or "",
-         "extracted": {"intent": "ok"}},
+         "extracted": {"intent": "ok"}, "is_wrap_up": False},
     ]
+    if goal_achieved:
+        evts.append({"type": "goal_achieved", "ts": 3,
+                     "goal_type": goal_type or "", "extracted": {"intent": "ok"}})
+    return evts
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -94,3 +102,59 @@ async def test_summarize_no_call_record_returns_none(sessionmaker_) -> None:  # 
     async with sessionmaker_() as session:
         result = await summarize_call(session, 99999, MockProvider())
     assert result is None
+
+
+# ── _last_role_markers: pure reads against engine-shaped transcripts ──────────
+# Regression for the bot_speech→ai_reply drift (fix-goal-achievement-pipeline).
+
+
+def test_markers_read_from_ai_reply() -> None:
+    transcript = [
+        {"type": "greeting", "ts": 0, "text": "hi"},
+        {"type": "ai_reply", "ts": 1, "text": "约一下吧", "turn_id": 1,
+         "goal_achieved": True, "goal_type": "intent_confirmed", "extracted": {}},
+        {"type": "goal_achieved", "ts": 2, "goal_type": "intent_confirmed", "extracted": {}},
+    ]
+    achieved, gtype, _ = _last_role_markers(transcript)
+    assert achieved is True
+    assert gtype == "intent_confirmed"
+
+
+def test_markers_latch_through_wrap_up_replies() -> None:
+    # After achievement the engine appends WRAPPING_UP ai_reply events with
+    # goal_achieved=False — achievement MUST latch, not be overwritten by them.
+    transcript = [
+        {"type": "ai_reply", "ts": 1, "text": "约一下吧",
+         "goal_achieved": True, "goal_type": "intent_confirmed", "extracted": {}},
+        {"type": "goal_achieved", "ts": 2, "goal_type": "intent_confirmed", "extracted": {}},
+        {"type": "ai_reply", "ts": 3, "text": "那不打扰了",
+         "goal_achieved": False, "goal_type": "", "extracted": {}, "is_wrap_up": True},
+        {"type": "ai_reply", "ts": 4, "text": "再见",
+         "goal_achieved": False, "goal_type": "", "extracted": {}, "is_wrap_up": True},
+    ]
+    achieved, gtype, _ = _last_role_markers(transcript)
+    assert achieved is True
+    assert gtype == "intent_confirmed"
+
+
+def test_markers_not_achieved() -> None:
+    transcript = [
+        {"type": "ai_reply", "ts": 1, "text": "考虑下",
+         "goal_achieved": False, "goal_type": "", "extracted": {}},
+    ]
+    achieved, gtype, _ = _last_role_markers(transcript)
+    assert achieved is False
+    assert gtype is None
+
+
+def test_markers_ignore_legacy_bot_speech() -> None:
+    # The fixed bug: bot_speech was the ONLY type read. We now read ai_reply only;
+    # there is no real bot_speech data in prod (engine never wrote it), so honoring
+    # it would be a pointless fallback layer. Confirm it is ignored.
+    transcript = [
+        {"type": "bot_speech", "ts": 1, "text": "ok",
+         "goal_achieved": True, "goal_type": "appointment", "extracted": {}},
+    ]
+    achieved, gtype, _ = _last_role_markers(transcript)
+    assert achieved is False
+    assert gtype is None

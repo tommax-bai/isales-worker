@@ -15,24 +15,37 @@ _SUMMARY_LIMIT = 200
 
 
 def _last_role_markers(transcript: list[dict[str, Any]]) -> tuple[bool, str | None, dict[str, Any]]:
-    """Walk transcript backwards; pull goal_achieved / goal_type / extracted
-    off the most recent bot_speech event that carries them.
+    """Pull goal_achieved / goal_type / extracted from the engine's transcript.
 
-    Engine writes those markers onto ``bot_speech`` events (see goal-achievement
-    spec). Older events may not have them at all (e.g. fillers, greeting).
+    Goal achievement is a *latch*: once a closing turn fires it (an ``ai_reply``
+    with ``goal_achieved=True`` or a standalone ``goal_achieved`` milestone event),
+    the call achieved its goal regardless of the later WRAPPING_UP replies — which
+    the engine writes as ``ai_reply`` with ``goal_achieved=False`` (run_loop
+    ``_gated_wrap_up_turn``). So we scan the whole transcript and keep the last
+    achieved marker, rather than trusting the final ``ai_reply``.
+
+    Markers ride on ``ai_reply`` events + a standalone ``goal_achieved`` event
+    (transcript spec § 事件类型枚举; goal-achievement spec § "worker 从 ai_reply
+    事件读取 goal 标记"). The pre-canonical ``bot_speech`` name (impl-worker,
+    2026-05; canonicalised to ``ai_reply`` by fix-transcript-schema-drift) is gone
+    — engine never writes it, so we MUST NOT read it. Read miss → fail-safe to
+    not-achieved rather than raising.
     """
 
-    for evt in reversed(transcript):
-        if evt.get("type") != "bot_speech":
-            continue
-        if "goal_achieved" not in evt and "goal_type" not in evt and "extracted" not in evt:
-            continue
-        return (
-            bool(evt.get("goal_achieved", False)),
-            evt.get("goal_type") or None,
-            dict(evt.get("extracted") or {}),
-        )
-    return False, None, {}
+    achieved: tuple[str | None, dict[str, Any]] | None = None
+    last_extracted: dict[str, Any] = {}
+    for evt in transcript:
+        etype = evt.get("type")
+        if etype == "goal_achieved":
+            achieved = (evt.get("goal_type") or None, dict(evt.get("extracted") or {}))
+        elif etype == "ai_reply":
+            if "extracted" in evt:
+                last_extracted = dict(evt.get("extracted") or {})
+            if evt.get("goal_achieved"):
+                achieved = (evt.get("goal_type") or None, dict(evt.get("extracted") or {}))
+    if achieved is not None:
+        return True, achieved[0], achieved[1]
+    return False, None, last_extracted
 
 
 def _stitch_text(transcript: list[dict[str, Any]]) -> str:
@@ -44,7 +57,9 @@ def _stitch_text(transcript: list[dict[str, Any]]) -> str:
             continue
         if kind == "user_speech":
             chunks.append(f"用户：{text}")
-        elif kind == "bot_speech":
+        elif kind == "ai_reply":
+            # AI side rides on ``ai_reply`` events (not the gone ``bot_speech``);
+            # reading the old name dropped every bot turn from the summary text.
             chunks.append(f"机器人：{text}")
         elif kind == "greeting":
             chunks.append(f"开场：{text}")

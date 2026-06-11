@@ -1,10 +1,12 @@
 """LLM provider ABC for summarize_call.
 
-Spec: goal-achievement § Scenario "worker 不重复判定" — worker MUST NOT
-      trigger an independent goal-achieved LLM call. The role LLM in the
-      engine already wrote ``goal_achieved`` / ``goal_type`` / ``extracted``
-      into the last bot_speech transcript event; summarize_call only
-      generates the summary text and copies those fields verbatim.
+Spec: goal-achievement § Scenario "worker 不重复判定" + "worker 从 ai_reply
+      事件读取 goal 标记" — worker MUST NOT trigger an independent goal-achieved
+      LLM call. The engine already wrote ``goal_achieved`` / ``goal_type`` /
+      ``extracted`` onto its ``ai_reply`` transcript events (+ a standalone
+      ``goal_achieved`` milestone event); summarize_call only generates the
+      summary text and copies those fields verbatim. (The pre-canonical
+      ``bot_speech`` event name is gone — fix-transcript-schema-drift.)
 """
 
 from __future__ import annotations

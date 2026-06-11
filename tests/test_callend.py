@@ -55,8 +55,10 @@ async def test_full_pipeline_normal_clearing_with_goal(  # type: ignore[no-untyp
         transcript = [
             {"type": "greeting", "ts": 0, "text": "hi"},
             {"type": "user_speech", "ts": 1, "text": "yes"},
-            {"type": "bot_speech", "ts": 2, "text": "ok",
+            {"type": "ai_reply", "ts": 2, "text": "ok", "turn_id": 1,
              "goal_achieved": True, "goal_type": "appointment",
+             "extracted": {"intent": "yes"}, "is_wrap_up": False},
+            {"type": "goal_achieved", "ts": 3, "goal_type": "appointment",
              "extracted": {"intent": "yes"}},
         ]
         cr = CallRecord(
